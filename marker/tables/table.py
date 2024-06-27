@@ -3,10 +3,12 @@ from marker.schema.block import Line, Span, Block
 from marker.schema.page import Page
 from tabulate import tabulate
 from typing import List
+import json
 
 from marker.settings import settings
 from marker.tables.cells import assign_cells_to_columns
 from marker.tables.utils import sort_table_blocks, replace_dots, replace_newlines
+from marker.tables.table_transformer import get_table_table_transformer
 
 
 def get_table_surya(page, table_box, space_tol=.01) -> List[List[str]]:
@@ -104,7 +106,7 @@ def get_table_pdftext(page: Page, table_box, space_tol=.01, round_factor=4) -> L
     return table_rows
 
 
-def format_tables(pages: List[Page]):
+def format_tables(doc, pages: List[Page], table_transformer_model):
     # Formats tables nicely into github flavored markdown
     table_count = 0
     for page in pages:
@@ -131,16 +133,28 @@ def format_tables(pages: List[Page]):
         for table_idx, table_box in enumerate(page_table_boxes):
             if table_idx not in table_insert_points:
                 continue
-
+            
+            # Always use surya
+            page.ocr_method = "surya"
             if page.ocr_method == "surya":
-                table_rows = get_table_surya(page, table_box)
-            else:
-                table_rows = get_table_pdftext(page, table_box)
-            # Skip empty tables
-            if len(table_rows) == 0:
-                continue
+                print(f"Extracting table from page {pnum} with method surya")
+                table_json = get_table_table_transformer(doc, page, table_box, table_transformer_model)
 
-            table_text = tabulate(table_rows, headers="firstrow", tablefmt="github", disable_numparse=True)
+                if len(table_json) == 0:
+                    continue
+
+                table_text = json.dumps(table_json, indent=4)
+                table_text = f"```json\n{table_text}\n```"
+            else:
+                print(f"Extracting table from page {pnum} with method pdftext")
+                table_rows = get_table_pdftext(page, table_box)
+            
+                # Skip empty tables
+                if len(table_rows) == 0:
+                    continue
+
+                table_text = tabulate(table_rows, headers="firstrow", tablefmt="github", disable_numparse=True)
+
             table_block = Block(
                 bbox=table_box,
                 block_type="Table",

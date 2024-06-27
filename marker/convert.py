@@ -72,7 +72,7 @@ def convert_single_pdf(
     })
 
     # Unpack models from list
-    texify_model, layout_model, order_model, edit_model, detection_model, ocr_model = model_lst
+    texify_model, layout_model, order_model, edit_model, detection_model, ocr_model, table_transformer_model = model_lst
 
     # Identify text lines on pages
     surya_detection(doc, pages, detection_model, batch_multiplier=batch_multiplier)
@@ -112,7 +112,7 @@ def convert_single_pdf(
     indent_blocks(pages)
 
     # Fix table blocks
-    table_count = format_tables(pages)
+    table_count = format_tables(doc, pages, table_transformer_model)
     out_meta["block_stats"]["table"] = table_count
 
     for page in pages:

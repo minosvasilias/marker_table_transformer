@@ -7,6 +7,7 @@ from surya.model.recognition.model import load_model as load_recognition_model
 from surya.model.recognition.processor import load_processor as load_recognition_processor
 from surya.model.ordering.model import load_model as load_order_model
 from surya.model.ordering.processor import load_processor as load_order_processor
+from marker.tables.table_transformer import load_model as load_table_transformer_model
 
 
 def setup_recognition_model(langs):
@@ -44,6 +45,11 @@ def setup_order_model():
     return model
 
 
+def setup_table_transformer_model():
+    model = load_table_transformer_model()
+    return model
+
+
 def load_all_models(langs=None):
     # langs is optional list of languages to prune from recognition MoE model
     detection = setup_detection_model()
@@ -54,5 +60,6 @@ def load_all_models(langs=None):
     # Only load recognition model if we'll need it for all pdfs
     ocr = setup_recognition_model(langs) if (settings.OCR_ENGINE == "surya" and settings.OCR_ALL_PAGES) else None
     texify = setup_texify_model()
-    model_lst = [texify, layout, order, edit, detection, ocr]
+    table_transformer = setup_table_transformer_model()
+    model_lst = [texify, layout, order, edit, detection, ocr, table_transformer]
     return model_lst
