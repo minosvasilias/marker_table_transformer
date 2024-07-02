@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     TORCH_DEVICE: Optional[str] = None # Note: MPS device does not work for text detection, and will default to CPU
     IMAGE_DPI: int = 96 # DPI to render images pulled from pdf at
     EXTRACT_IMAGES: bool = True # Extract images from pdfs and save them
+    PAGINATE_OUTPUT: bool = False # Paginate output markdown
 
     @computed_field
     @property
@@ -33,6 +34,9 @@ class Settings(BaseSettings):
     SUPPORTED_FILETYPES: Dict = {
         "application/pdf": "pdf",
     }
+
+    # Text extraction
+    PDFTEXT_CPU_WORKERS: int = 4 # How many CPU workers to use for pdf text extraction
 
     # Text line Detection
     DETECTOR_BATCH_SIZE: Optional[int] = None # Defaults to 6 for CPU, 12 otherwise

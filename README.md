@@ -44,6 +44,14 @@ I want marker to be as widely accessible as possible, while still funding my dev
 
 The weights for the models are licensed `cc-by-nc-sa-4.0`, but I will waive that for any organization under $5M USD in gross revenue in the most recent 12-month period AND under $5M in lifetime VC/angel funding raised. If you want to remove the GPL license requirements (dual-license) and/or use the weights commercially over the revenue limit, check out the options [here](https://www.datalab.to).
 
+# Hosted API
+
+There's a hosted API for marker available [here](https://www.datalab.to/):
+
+- Supports PDFs, word documents, and powerpoints 
+- 1/4th the price of leading cloud-based competitors
+- Leverages [Modal](https://modal.com/) for high reliability without latency spikes
+
 # Community
 
 [Discord](https://discord.gg//KuZwXNGnfH) is where we discuss future development.
@@ -143,6 +151,15 @@ There are some settings that you may find useful if things aren't working the wa
 
 In general, if output is not what you expect, trying to OCR the PDF is a good first step.  Not all PDFs have good text/bboxes embedded in them.
 
+## Useful settings
+
+These settings can improve/change output quality:
+
+- `OCR_ALL_PAGES` will force OCR across the document.  Many PDFs have bad text embedded due to older OCR engines being used.
+- `PAGINATE_OUTPUT` will put a horizontal rule between pages.  Default: False.
+- `EXTRACT_IMAGES` will extract images and save separately.  Default: True.
+- `BAD_SPAN_TYPES` specifies layout blocks to remove from the markdown output.
+
 # Benchmarks
 
 Benchmarking PDF extraction quality is hard.  I've created a test set by finding books and scientific papers that have a pdf version and a latex source.  I convert the latex to text, and compare the reference to the output of text extraction methods.  It's noisy, but at least directionally correct.
@@ -169,7 +186,7 @@ Peak GPU memory usage during the benchmark is `4.2GB` for nougat, and `4.1GB` fo
 
 **Throughput**
 
-Marker takes about 4.5GB of VRAM on average per task, so you can convert 10 documents in parallel on an A6000.
+Marker takes about 4GB of VRAM on average per task, so you can convert 12 documents in parallel on an A6000.
 
 ![Benchmark results](data/images/per_doc.png)
 
