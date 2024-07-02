@@ -14,6 +14,7 @@ from marker.tables.utils import sort_table_blocks, replace_dots, replace_newline
 from marker.pdf.images import render_image
 from marker.settings import settings
 from marker.schema.bbox import merge_boxes, box_intersection_pct, rescale_bbox
+import pandas as pd
 
 class MaxResize(object):
     def __init__(self, max_size=800):
@@ -220,10 +221,33 @@ def parse_table(table_name, table_img, text_lines, model, debug_mode=True):
     # Associate with OCR
     data = find_text(cell_coordinates, text_lines, debug_mode)
 
+    # Clean data
+    data = clean_data(data)
+
     if debug_mode:
         store_as_csv(data, "temp/table_transformer", table_name.split("/")[-1])
 
     return data
+
+
+# Remove all empty rows and columns
+def clean_data(data):
+    import json
+    print(f"Cleaning data: {json.dumps(data, indent=4)}")
+    def is_empty(value):
+        return value.replace("\n", "").strip() == ""
+    
+    # Remove empty rows
+    data = {row: row_data for row, row_data in data.items() if not all(is_empty(value) for value in row_data)}
+
+    # Remove empty columns
+    num_columns = min(len(row_data) for row_data in data.values())
+    for col in range(num_columns - 1, -1, -1):
+        if all(is_empty(row[col]) for row in data.values()):
+            for row in data:
+                del data[row][col]
+    return data
+
 
 
 def find_text(cell_coordinates, text_lines, debug_mode=False):
