@@ -69,7 +69,7 @@ def get_table_table_transformer(doc, page: Page, table_box, model, debug_mode=Fa
     table_img, text_lines = adjust_bboxes(table_box, text_lines, table_img, add_padding=True)
     
     # Parse table with table transformer
-    table_data = parse_table(table_img, text_lines, model)
+    table_data = parse_table(table_img, text_lines, model, debug_mode)
 
     # Convert table data to JSON list
     table_rows = []
