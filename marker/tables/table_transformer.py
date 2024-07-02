@@ -218,7 +218,7 @@ def parse_table(table_name, table_img, text_lines, model, debug_mode=True):
     cell_coordinates = get_cell_coordinates_by_row(cells)
 
     # Associate with OCR
-    data = find_text(cell_coordinates, text_lines, table_img, debug_mode)
+    data = find_text(cell_coordinates, text_lines, debug_mode)
 
     if debug_mode:
         store_as_csv(data, "temp/table_transformer", table_name.split("/")[-1])
@@ -226,7 +226,7 @@ def parse_table(table_name, table_img, text_lines, model, debug_mode=True):
     return data
 
 
-def find_text(cell_coordinates, text_lines, table_img, debug_mode=False):
+def find_text(cell_coordinates, text_lines, debug_mode=False):
     data = {}
     max_num_columns = 0
     MIN_OVERLAP = 30
