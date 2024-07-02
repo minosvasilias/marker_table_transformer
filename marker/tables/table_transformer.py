@@ -5,16 +5,16 @@ from torchvision import transforms
 from PIL import ImageDraw, Image
 import os
 from tqdm.auto import tqdm
-import numpy as np
 import time
 import csv
 from marker.schema.page import Page
 from typing import List
-from marker.tables.utils import sort_table_blocks, replace_dots, replace_newlines
+from marker.tables.utils import sort_table_blocks
 from marker.pdf.images import render_image
 from marker.settings import settings
-from marker.schema.bbox import merge_boxes, box_intersection_pct, rescale_bbox
-import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MaxResize(object):
     def __init__(self, max_size=800):
@@ -29,7 +29,7 @@ class MaxResize(object):
         return resized_image
 
 
-
+# Load table transformer model
 def load_model(model_name="microsoft/table-structure-recognition-v1.1-all"):
     model = TableTransformerForObjectDetection.from_pretrained(model_name)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -37,48 +37,49 @@ def load_model(model_name="microsoft/table-structure-recognition-v1.1-all"):
     return model
 
 
-def get_table_table_transformer(doc, page: Page, table_box, model) -> List[List[str]]:
-    pnum = page.pnum
-    print(f"Processing page {pnum} with table box {table_box}")
-    page_image = render_image(doc[pnum], dpi=settings.SURYA_LAYOUT_DPI)
+# Extract single table from page
+def get_table_table_transformer(doc, page: Page, table_box, model, debug_mode=False) -> List[List[str]]:
+    logger.debug(f"Processing page {page.pnum} with table box {table_box}")
+    # Get page image in appropriate resolution
+    page_image = render_image(doc[page.pnum], dpi=settings.SURYA_LAYOUT_DPI)
+
     # Scale image to page.bbox
     new_width = page.bbox[2] - page.bbox[0]
     new_height = page.bbox[3] - page.bbox[1]
     page_image = page_image.resize((int(new_width), int(new_height)))
-    # Store image of table bbox
-    img = page_image.copy()
-    draw = ImageDraw.Draw(img)
-    draw.rectangle(table_box, outline="red")
-    if not os.path.exists("temp/table_transformer"):
-        os.makedirs("temp/table_transformer")
-    img.save(f"temp/table_transformer/page_{pnum}_{time.time()}_table_bbox.png")
 
-    print(f"Page image size: {page_image.size}")
+    if debug_mode:
+        store_page_image(page_image, table_box, page)
+
+    # Get cropped table image and sort text blocks
     table_img = get_table_img(table_box, page_image)
-    print(f"Table image size: {table_img.size}")
     blocks = sort_table_blocks(page.blocks)
-    #print(f"Blocks: {len(blocks)}")
+
+    # Get text lines and simplified text spans
     text_lines = [line for block in blocks for line in block.lines]
     text_spans = [{
         "text": span.text,
         "bbox": span.bbox
     } for line in text_lines for span in line.spans]
-    #print(f"Text spans: {len(text_spans)}")
+
+    # Find text lines that lie within table bbox
     text_lines = find_text_within_table(table_box, text_spans)
-    print(f"Text lines within table: {len(text_lines)}")
+
+    # Ensure text bboxes are relative to table bbox and add padding
     table_img, text_lines = adjust_bboxes(table_box, text_lines, table_img, add_padding=True)
-    print(f"Adjusted table image size: {table_img.size}")
-    table_name = f"temp/table_transformer/table_{pnum}.png"
-    table_data = parse_table(table_name, table_img, text_lines, model)
-    #print(f"Table data: {table_data}")
+    
+    # Parse table with table transformer
+    table_data = parse_table(table_img, text_lines, model)
+
+    # Convert table data to JSON list
     table_rows = []
     for row in table_data:
         table_rows.append(table_data[row])
-    print(f"Table rows: {table_rows}")
+    
     return table_to_json(table_rows, True)
 
 
-        
+# Convert table rows to JSON, amend headers if necessary
 def table_to_json(table_rows, sort_by_rows=False):
     if len(table_rows) == 0:
         return {}
@@ -104,26 +105,27 @@ def table_to_json(table_rows, sort_by_rows=False):
     return table_json
 
 
-
+# Find text bboxes that lie safely within table bbox
 def find_text_within_table(table_bbox, text_spans):
+    SAFE_OVERLAP = 85
     lines = []
     for span in text_spans:
         overlap, _, _ = bbox_overlap(table_bbox, span["bbox"])
-        if overlap > 85:
-            # If it has text att
+        if overlap > SAFE_OVERLAP:
             lines.append({
                 "text": span["text"],
                 "bbox": span["bbox"],
             })
     return lines
 
+# Crop table image from page image
 def get_table_img(table_bbox, page_img):
     table_img = page_img.crop(table_bbox)
     return table_img
 
+# Subtract table bbox from text lines and add padding if necessary
 def adjust_bboxes(table_bbox, text_lines, table_img, add_padding=False):
     # Adjust line bboxes to be relative to the table bbox
-    print(f"Removing table bbox {table_bbox} from text lines...")
     for line in text_lines:
         line["bbox"][0] -= table_bbox[0]
         line["bbox"][1] -= table_bbox[1]
@@ -149,6 +151,9 @@ def adjust_bboxes(table_bbox, text_lines, table_img, add_padding=False):
         
     return table_img, text_lines
 
+
+# Calculate overlap between two bounding boxes
+# as well as left and right cut percentages
 def bbox_overlap(bbox1, bbox2, debug_mode=False):
     x1, y1, x1e, y1e = bbox1
     x2, y2, x2e, y2e = bbox2
@@ -173,9 +178,7 @@ def bbox_overlap(bbox1, bbox2, debug_mode=False):
     # Calculate the percentage of overlap, i.e. the percentage of bbox2_area that is part of overlap_area
     overlap = (overlap_area / bbox2_area) * 100
 
-    #print(f"Overlap: {overlap} between {bbox1} and {bbox2} with overlap area: {[left, top, inter_width, inter_height]}")
-
-    if False:
+    if debug_mode:
         visualize_overlap(bbox1, bbox2, left, top, inter_width, inter_height, right, bottom, overlap)
     
     # Calculate percentage bbox is cut off to left and right
@@ -187,11 +190,11 @@ def bbox_overlap(bbox1, bbox2, debug_mode=False):
 
 
 
-
-def parse_table(table_name, table_img, text_lines, model, debug_mode=True):
+# Parse table image using table transformer
+def parse_table(table_img, text_lines, model, debug_mode=False):
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Processing {table_name} with text lines:\n{text_lines}")
 
+    # From: https://github.com/microsoft/table-transformer/blob/main/src/inference.py#L45
     structure_transform = transforms.Compose([
         MaxResize(1000),
         transforms.ToTensor(),
@@ -199,21 +202,20 @@ def parse_table(table_name, table_img, text_lines, model, debug_mode=True):
     ])
     pixel_values = structure_transform(table_img).unsqueeze(0)
     pixel_values = pixel_values.to(device)
-    print(pixel_values.shape)
 
-    # forward pass
+    # Forward pass
     with torch.no_grad():
         outputs = model(pixel_values)
 
-    # update id2label to include "no object"
+    # Update id2label to include "no object"
     structure_id2label = model.config.id2label
     structure_id2label[len(structure_id2label)] = "no object"
 
+    # Convert outputs to usable objects
     cells = outputs_to_objects(outputs, table_img.size, structure_id2label)
-    print(cells)
 
     if debug_mode:
-        visualize_table(table_name, table_img, cells, text_lines)
+        visualize_table(table_img, cells, text_lines)
 
     # Get cell coordinates by row
     cell_coordinates = get_cell_coordinates_by_row(cells)
@@ -225,15 +227,13 @@ def parse_table(table_name, table_img, text_lines, model, debug_mode=True):
     data = clean_data(data)
 
     if debug_mode:
-        store_as_csv(data, "temp/table_transformer", table_name.split("/")[-1])
+        store_as_csv(data)
 
     return data
 
 
 # Remove all empty rows and columns
 def clean_data(data):
-    import json
-    print(f"Cleaning data: {json.dumps(data, indent=4)}")
     def is_empty(value):
         return value.replace("\n", "").strip() == ""
     
@@ -249,7 +249,7 @@ def clean_data(data):
     return data
 
 
-
+# Find highest overlap text bboxes for each cell
 def find_text(cell_coordinates, text_lines, debug_mode=False):
     data = {}
     max_num_columns = 0
@@ -328,6 +328,7 @@ def box_cxcywh_to_xyxy(x):
     return torch.stack(b, dim=1)
 
 
+# Find and sort cell coordinates
 def get_cell_coordinates_by_row(cells):
     # Extract rows and columns
     rows = [entry for entry in cells if entry['label'] == 'table row']
@@ -364,9 +365,8 @@ def get_cell_coordinates_by_row(cells):
 
 
 
-
+# DEBUG: Visualize bbox overlaps
 def visualize_overlap(bbox1, bbox2, left, top, inter_width, inter_height, right, bottom, overlap):
-    # Visualize
     try:
         if overlap > 50 and inter_width > 0 and inter_height > 0:
             img = Image.new('RGB', (1000, 1000), color='white')
@@ -380,12 +380,12 @@ def visualize_overlap(bbox1, bbox2, left, top, inter_width, inter_height, right,
                 os.makedirs("temp/table_transformer")
             img.save(f"temp/table_transformer/overlap_{cur_time}.png")
     except Exception as e:
-        print(f"Error visualizing overlap: {e}")
+        logger.info(f"Error visualizing overlap: {e}")
 
 
 
-def visualize_table(table_name, table_img, cells, text_lines):
-    # Visualize
+# DEBUG: Visualize table and cell bboxes
+def visualize_table(table_img, cells, text_lines):
     cropped_table_visualized = table_img.copy()
     draw = ImageDraw.Draw(cropped_table_visualized)
 
@@ -396,21 +396,28 @@ def visualize_table(table_name, table_img, cells, text_lines):
         draw.rectangle(line["bbox"], outline="blue")
 
     # Store the visualized image
-    original_name = table_name.split("/")[-1]
-    original_name = original_name.split(".")[0]
     temp_dir = "temp/table_transformer"
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
-    cropped_table_visualized.save(f"{temp_dir}/visualized_{original_name}_{time.time()}.png")
+    cropped_table_visualized.save(f"{temp_dir}/visualized_{time.time()}.png")
 
 
-def store_as_csv(data, temp_dir, original_name):
+# DEBUG: Store data as CSV
+def store_as_csv(data, temp_dir = "temp/table_transformer"):
     try:
-        # Store as CSV
-        with open(f'{temp_dir}/{original_name}_{time.time()}_ocr.csv', 'w') as result_file:
+        with open(f'{temp_dir}/{time.time()}_ocr.csv', 'w') as result_file:
             wr = csv.writer(result_file, dialect='excel')
 
             for row, row_text in data.items():
                 wr.writerow(row_text)
     except Exception as e:
-        print(f"Error storing as CSV: {e}")
+        logger.info(f"Error storing as CSV: {e}")
+
+# DEBUG: Store page image with table bbox
+def store_page_image(page_image, table_box, page):
+    img = page_image.copy()
+    draw = ImageDraw.Draw(img)
+    draw.rectangle(table_box, outline="red")
+    if not os.path.exists("temp/table_transformer"):
+        os.makedirs("temp/table_transformer")
+    img.save(f"temp/table_transformer/page_{page.pnum}_{time.time()}_table_bbox.png")
