@@ -229,54 +229,51 @@ def parse_table(table_name, table_img, text_lines, model, debug_mode=True):
 def find_text(cell_coordinates, text_lines, table_img, debug_mode=False):
     data = {}
     max_num_columns = 0
-
+    MIN_OVERLAP = 30
+    
+    # First pass: Calculate overlaps for all cells
+    cell_overlaps = {}
     for idx, row in enumerate(tqdm(cell_coordinates)):
-        row_text = []
+        cell_overlaps[idx] = []
         for cell in row["cells"]:
-            cell_image = np.array(table_img.crop(cell["cell"]))
             cell_bbox = cell["cell"]
-            overlapping_texts = []
-            MIN_OVERLAP = 60
-            SAFE_OVERLAP = 85
-            largest_overlap = MIN_OVERLAP
-            largest_overlap_text_line = None
-            for text_line in text_lines:
-                if "used" in text_line and text_line["used"]:
-                    continue
+            cell_texts = []
+            for text_idx, text_line in enumerate(text_lines):
                 text_bbox = text_line["bbox"]
                 overlap, left_cut, right_cut = bbox_overlap(cell_bbox, text_bbox, debug_mode)
-                #print(f"Overlap: {overlap} with left cut: {left_cut} and right cut: {right_cut} for text: {text_line['text']}")
-                #print(f"Overlap: {overlap} between {cell_bbox} and {text_bbox}: {text_line['text']}")
-                if overlap > largest_overlap:
-                    largest_overlap = overlap
-                    largest_overlap_text_line = text_line
-                if overlap > SAFE_OVERLAP:
-                    overlapping_texts.append(text_line)
-                    text_line["used"] = True
-            if largest_overlap_text_line:
-                largest_overlap_text = largest_overlap_text_line["text"]
-                largest_overlap_text_line["used"] = True
-                if len(overlapping_texts) > 1:
-                    largest_overlap_text = "\n".join([text_line["text"] for text_line in overlapping_texts])
-            else:
-                largest_overlap_text = ""
-            row_text.append(largest_overlap_text)
-        # print(f"Row text: {row_text}")
+                if overlap > MIN_OVERLAP:
+                    # Store y-coordinate for vertical ordering
+                    cell_texts.append((overlap, text_idx, text_line["text"], text_bbox[1]))
+            # Sort primarily by y-coordinate (ascending), then by overlap (descending)
+            cell_overlaps[idx].append(sorted(cell_texts, key=lambda x: (x[3], -x[0])))
+
+    # Second pass: Assign text to cells
+    for idx, row in enumerate(tqdm(cell_coordinates)):
+        row_text = []
+        for cell_idx, cell_texts in enumerate(cell_overlaps[idx]):
+            if not cell_texts:
+                row_text.append("")
+                continue
+            
+            assigned_texts = []
+            for overlap, text_idx, text, _ in cell_texts:
+                if not text_lines[text_idx].get("used", False):
+                    assigned_texts.append(text)
+                    text_lines[text_idx]["used"] = True
+            
+            if assigned_texts:
+                row_text.append("\n".join(assigned_texts))
+        
         if len(row_text) > max_num_columns:
             max_num_columns = len(row_text)
         data[idx] = row_text
 
-    # print("Max number of columns:", max_num_columns)
-
-    # pad rows which don't have max_num_columns elements
-    # to make sure all rows have the same number of columns
-    for row, row_data in data.copy().items():
-        if len(row_data) != max_num_columns:
-            row_data = row_data + ["" for _ in range(max_num_columns - len(row_data))]
-        data[row] = row_data
+    # Pad rows to ensure all have the same number of columns
+    for row, row_data in data.items():
+        if len(row_data) < max_num_columns:
+            data[row] = row_data + ["" for _ in range(max_num_columns - len(row_data))]
 
     return data
-
 
 
 def outputs_to_objects(outputs, img_size, id2label):
